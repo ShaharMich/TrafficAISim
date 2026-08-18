@@ -51,7 +51,7 @@ public:
 	ACrosswalk* FindCrosswalkAhead(int32 LaneIndex, float FromDistance, float SearchAhead, float& OutDistanceToIt) const;
 
 	// ---- Vehicle positions ----
-	/** Called by each vehicle every tick so crosswalks can judge gaps cheaply. */
+	/** Called by each vehicle every tick so crosswalks and followers can judge gaps cheaply. */
 	void ReportVehicle(AActor* Vehicle, int32 LaneIndex, float DistanceAlongLane, float SpeedCms);
 	void ForgetVehicle(AActor* Vehicle);
 
@@ -60,6 +60,13 @@ public:
 	 * Returns BIG_NUMBER when the lane is clear.
 	 */
 	float GetTimeToArrival(int32 LaneIndex, float AtDistance) const;
+
+	/**
+	 * Distance along the lane to the nearest vehicle ahead of FromDistance.
+	 * Returns BIG_NUMBER when nothing is ahead. Used by kinematic vehicles,
+	 * which have no physics and would otherwise drive through each other.
+	 */
+	float GetGapToVehicleAhead(int32 LaneIndex, float FromDistance, const AActor* Ignore) const;
 
 private:
 	UPROPERTY() TMap<int32, USplineComponent*> Lanes;

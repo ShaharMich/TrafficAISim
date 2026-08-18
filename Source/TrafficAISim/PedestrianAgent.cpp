@@ -29,7 +29,7 @@ APedestrianAgent::APedestrianAgent()
 	bReplicates = true;
 	SetReplicateMovement(true);
 	SetNetUpdateFrequency(10.f);
-	NetCullDistanceSquared = 100000000.f; // 100m
+	SetNetCullDistanceSquared(100000000.f); // 100m
 }
 
 void APedestrianAgent::InitialiseOnFootpath(USplineComponent* InFootpath, int32 InFootpathIndex, float StartDistance)

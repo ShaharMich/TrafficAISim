@@ -58,6 +58,12 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Speed") float Kp = 0.0025f;
 	UPROPERTY(EditAnywhere, Category = "Speed") float Ki = 0.0002f;
 	UPROPERTY(EditAnywhere, Category = "Speed") float Kd = 0.0004f;
+	void SetLaneIndex(int32 InLaneIndex) { LaneIndex = InLaneIndex; }
+
+	/** Gap in cm to hold behind the vehicle ahead. */
+	UPROPERTY(EditAnywhere, Category = "Avoidance") float FollowGap = 900.f;
+	/** Deceleration assumed when planning a stop, cm/s^2. */
+	UPROPERTY(EditAnywhere, Category = "Avoidance") float BrakeDecel = 500.f;
 
 	// ---- Avoidance ----
 	UPROPERTY(EditAnywhere, Category = "Avoidance") float ProbeDistance = 1600.f;
@@ -88,6 +94,7 @@ private:
 	float SpeedErrorIntegral = 0.f;
 	float LastSpeedError = 0.f;
 	float LastTargetSpeedCms = 0.f;
+	int32 LaneIndex = 0;
 
 	/** Project the vehicle onto the spline and update CachedDistance. */
 	void UpdateDistanceAlongPath(const FVector& WorldLocation);

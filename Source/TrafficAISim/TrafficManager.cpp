@@ -119,6 +119,13 @@ void ATrafficManager::UpdateLOD()
 
 		if (Desired == EVehicleSimLOD::Physics) ++PhysicsCount; else ++KinematicCount;
 	}
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(
+			9001, 0.f, FColor::Cyan,
+			FString::Printf(TEXT("Vehicles: %d physics / %d kinematic  |  LOD %s"),
+				PhysicsCount, KinematicCount, bLODEnabled ? TEXT("ON") : TEXT("OFF")));
+	}
 }
 
 float ATrafficManager::DistanceToNearestPlayer(const FVector& Location) const

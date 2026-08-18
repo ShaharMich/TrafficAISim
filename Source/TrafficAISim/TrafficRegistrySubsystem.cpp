@@ -149,3 +149,37 @@ float UTrafficRegistrySubsystem::GetTimeToArrival(int32 LaneIndex, float AtDista
 
 	return Soonest;
 }
+
+float UTrafficRegistrySubsystem::GetGapToVehicleAhead(int32 LaneIndex, float FromDistance, const AActor* Ignore) const
+{
+	const TArray<FLaneOccupant>* Occupants = LaneOccupants.Find(LaneIndex);
+	USplineComponent* Lane = GetLane(LaneIndex);
+
+	if (!Occupants || !Lane)
+	{
+		return BIG_NUMBER;
+	}
+
+	const float LaneLength = Lane->GetSplineLength();
+	const bool bLoop = Lane->IsClosedLoop();
+
+	float Nearest = BIG_NUMBER;
+
+	for (const FLaneOccupant& Occupant : *Occupants)
+	{
+		if (!IsValid(Occupant.Actor) || Occupant.Actor == Ignore) continue;
+
+		float Gap = Occupant.DistanceAlongLane - FromDistance;
+		if (bLoop && Gap < 0.f)
+		{
+			Gap += LaneLength;
+		}
+
+		if (Gap > 0.f)
+		{
+			Nearest = FMath::Min(Nearest, Gap);
+		}
+	}
+
+	return Nearest;
+}

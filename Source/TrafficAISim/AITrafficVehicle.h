@@ -46,6 +46,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Traffic")
 	void InitialiseOnLane(USplineComponent* InSpline, int32 InLaneIndex, float StartDistance);
 
+	/**
+	 * Request a simulation level. A switch into Physics is refused while the
+	 * vehicle is intersecting another, so call this repeatedly; the manager does.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Traffic")
 	void SetSimLOD(EVehicleSimLOD NewLOD);
 
@@ -57,6 +61,18 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Traffic")
 	class UCrosswalkYieldComponent* Yield = nullptr;
+
+	/**
+	 * Gap in cm a kinematic vehicle keeps behind the one ahead. Kinematic cars
+	 * have no collision, so without this they drive through each other and then
+	 * explode the moment one of them switches back to physics.
+	 */
+	UPROPERTY(EditAnywhere, Category = "LOD")
+	float MinKinematicGap = 700.f;
+
+	/** Half extent of the clearance test used before switching into physics. */
+	UPROPERTY(EditAnywhere, Category = "LOD")
+	FVector PhysicsSwitchClearance = FVector(240.f, 100.f, 70.f);
 
 	/**
 	 * When true, kinematic vehicles stop replicating their transform and instead
@@ -90,9 +106,18 @@ private:
 	float KinematicDistance = 0.f;
 	float KinematicSpeedCms = 0.f;
 	float TimeSinceIntentPush = 0.f;
+	/** Height from the spline to the vehicle origin when resting. Measure it, don't guess. */
+	UPROPERTY(EditAnywhere, Category = "LOD")
+	float KinematicHeightOffset = 0;
 
 	/** Engine, transmission, steering and chassis defaults. Called from the constructor. */
 	void ConfigureVehicleDefaults();
+
+	/** True if turning physics on right now would resolve an intersection violently. */
+	bool IsBlockedForPhysicsSwitch() const;
+
+	/** Push our lane position to the registry so other vehicles can see us. */
+	void ReportToRegistry();
 
 	void TickKinematic(float DeltaTime);
 	void PushIntent();

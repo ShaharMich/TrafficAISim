@@ -5,18 +5,20 @@
 #include "PurePursuitFollowerComponent.h"
 #include "CrosswalkYieldComponent.h"
 #include "TrafficRegistrySubsystem.h"
+#include "AIController.h"
 #include "ChaosWheeledVehicleMovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SplineComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerState.h"
-#include "AIController.h"
 #include "Net/UnrealNetwork.h"
 
 AAITrafficVehicle::AAITrafficVehicle()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.TickGroup = TG_PrePhysics;
+
+	// Chaos vehicle movement ignores input on an unpossessed pawn.
 	AIControllerClass = AAIController::StaticClass();
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 
@@ -81,6 +83,9 @@ void AAITrafficVehicle::ConfigureVehicleDefaults()
 void AAITrafficVehicle::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// CurrentLOD already reads Physics, so force the side effects to run once.
+	CurrentLOD = EVehicleSimLOD::Kinematic;
 	SetSimLOD(EVehicleSimLOD::Physics);
 }
 
@@ -118,12 +123,41 @@ void AAITrafficVehicle::InitialiseOnLane(USplineComponent* InSpline, int32 InLan
 
 	const FVector Location = InSpline->GetLocationAtDistanceAlongSpline(StartDistance, ESplineCoordinateSpace::World);
 	const FRotator Rotation = InSpline->GetRotationAtDistanceAlongSpline(StartDistance, ESplineCoordinateSpace::World);
-	SetActorLocationAndRotation(Location + FVector(0.f, 0.f, 60.f), FRotator(0.f, Rotation.Yaw, 0.f));
+		SetActorLocationAndRotation(
+		Location + FVector(0.f, 0.f, KinematicHeightOffset),
+		FRotator(0.f, Rotation.Yaw, 0.f),
+		false, nullptr, ETeleportType::TeleportPhysics);
+}
+
+bool AAITrafficVehicle::IsBlockedForPhysicsSwitch() const
+{
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	// Kinematic vehicles are allowed to overlap. Waking the physics solver on top
+	// of an intersection makes Chaos resolve it explosively, so wait for a gap.
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(PhysicsSwitchClearance), false, this);
+
+	return World->OverlapAnyTestByChannel(
+		GetActorLocation(),
+		GetActorQuat(),
+		ECC_Vehicle,
+		FCollisionShape::MakeBox(PhysicsSwitchClearance),
+		Params);
 }
 
 void AAITrafficVehicle::SetSimLOD(EVehicleSimLOD NewLOD)
 {
 	if (NewLOD == CurrentLOD)
+	{
+		return;
+	}
+
+	// Refuse the switch rather than exploding. The manager asks again next update.
+	if (NewLOD == EVehicleSimLOD::Physics && IsBlockedForPhysicsSwitch())
 	{
 		return;
 	}
@@ -180,16 +214,44 @@ void AAITrafficVehicle::SetSimLOD(EVehicleSimLOD NewLOD)
 	}
 }
 
+void AAITrafficVehicle::ReportToRegistry()
+{
+	UTrafficRegistrySubsystem* Registry = GetWorld() ? GetWorld()->GetSubsystem<UTrafficRegistrySubsystem>() : nullptr;
+	if (!Registry)
+	{
+		return;
+	}
+
+	const float Distance = (CurrentLOD == EVehicleSimLOD::Kinematic)
+		? KinematicDistance
+		: (Follower ? Follower->GetDistanceAlongPath() : 0.f);
+
+	const float Speed = (CurrentLOD == EVehicleSimLOD::Kinematic)
+		? KinematicSpeedCms
+		: GetVelocity().Size();
+
+	Registry->ReportVehicle(this, LaneIndex, Distance, Speed);
+}
+
 void AAITrafficVehicle::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	// Both modes report, so kinematic vehicles are visible to each other
+	// and to the crosswalk gap test.
+	ReportToRegistry();
 
 	if (CurrentLOD == EVehicleSimLOD::Kinematic)
 	{
 		TickKinematic(DeltaTime);
 	}
 
-	if (HasAuthority() && bReplicateIntentOnly)
+	if (bReplicateIntentOnly)
 	{
 		TimeSinceIntentPush += DeltaTime;
 		if (TimeSinceIntentPush >= IntentUpdateInterval)
@@ -216,7 +278,23 @@ void AAITrafficVehicle::TickKinematic(float DeltaTime)
 	KinematicSpeedCms = FMath::FInterpTo(KinematicSpeedCms, TargetSpeed, DeltaTime, 1.5f);
 
 	const float Length = Lane->GetSplineLength();
-	KinematicDistance += KinematicSpeedCms * DeltaTime;
+	float NextDistance = KinematicDistance + KinematicSpeedCms * DeltaTime;
+
+	// No collision in kinematic mode, so keep spacing by hand against the
+	// registry rather than letting cars slide through one another.
+	if (UTrafficRegistrySubsystem* Registry = GetWorld() ? GetWorld()->GetSubsystem<UTrafficRegistrySubsystem>() : nullptr)
+	{
+		const float Gap = Registry->GetGapToVehicleAhead(LaneIndex, KinematicDistance, this);
+		if (Gap < MinKinematicGap)
+		{
+			// Hold station at the minimum gap and bleed off speed.
+			NextDistance = KinematicDistance + FMath::Max(Gap - MinKinematicGap, 0.f);
+			KinematicSpeedCms = FMath::FInterpTo(KinematicSpeedCms, 0.f, DeltaTime, 3.f);
+		}
+	}
+
+	KinematicDistance = NextDistance;
+
 	if (Lane->IsClosedLoop())
 	{
 		KinematicDistance = FMath::Fmod(KinematicDistance, Length);
@@ -229,7 +307,7 @@ void AAITrafficVehicle::TickKinematic(float DeltaTime)
 	const FVector Location = Lane->GetLocationAtDistanceAlongSpline(KinematicDistance, ESplineCoordinateSpace::World);
 	const FRotator Rotation = Lane->GetRotationAtDistanceAlongSpline(KinematicDistance, ESplineCoordinateSpace::World);
 
-	SetActorLocationAndRotation(Location + FVector(0.f, 0.f, 60.f), FRotator(0.f, Rotation.Yaw, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
+	SetActorLocationAndRotation(Location + FVector(0.f, 0.f, KinematicHeightOffset), FRotator(0.f, Rotation.Yaw, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
 }
 
 void AAITrafficVehicle::PushIntent()
