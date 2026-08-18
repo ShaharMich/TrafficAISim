@@ -77,7 +77,16 @@ void UPurePursuitFollowerComponent::TickComponent(float DeltaTime, ELevelTick Ti
 	const float SteerAngleRad = FMath::Atan(Curvature * WheelBase);
 	const float RawSteering = FMath::Clamp(FMath::RadiansToDegrees(SteerAngleRad) / MaxSteerAngleDeg, -1.f, 1.f);
 
-	SmoothedSteering = FMath::FInterpTo(SmoothedSteering, RawSteering, DeltaTime, SteeringInterpSpeed);
+	// Pure pursuit alone settles at an offset through sustained curves.
+	// A Stanley-style cross-track term pulls it back onto the line.
+	const FVector ClosestNow = Path->GetLocationAtDistanceAlongSpline(CachedDistance, ESplineCoordinateSpace::World);
+	const FVector ToPath = OwnerTransform.InverseTransformPosition(ClosestNow);
+	const float CrossTrack = ToPath.Y; // signed: positive means the path is to our right
+
+	const float CrossTrackTerm = FMath::Clamp(CrossTrack * CrossTrackGain, -MaxCrossTrackCorrection, MaxCrossTrackCorrection);
+	const float CombinedSteering = FMath::Clamp(RawSteering + CrossTrackTerm, -1.f, 1.f);
+
+	SmoothedSteering = FMath::FInterpTo(SmoothedSteering, CombinedSteering, DeltaTime, SteeringInterpSpeed);
 	VehicleMovement->SetSteeringInput(SmoothedSteering);
 
 	// ---------------------------------------------------------------
@@ -125,19 +134,6 @@ void UPurePursuitFollowerComponent::TickComponent(float DeltaTime, ELevelTick Ti
 
 	if (bDrawDebug)
 	{
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(
-				(int32)GetUniqueID(), 0.f, FColor::Yellow,
-				FString::Printf(TEXT("Thr %.2f  Brk %.2f  Steer %.2f | Speed %.0f  Target %.0f | Gear %d  RPM %.0f"),
-					FMath::Clamp(ControlOutput, 0.f, 1.f),
-					FMath::Clamp(-ControlOutput, 0.f, 1.f),
-					SmoothedSteering,
-					ForwardSpeed,
-					TargetSpeedCms,
-					VehicleMovement->GetCurrentGear(),
-					VehicleMovement->GetEngineRotationSpeed()));
-		}
 		const UWorld* World = GetWorld();
 		DrawDebugSphere(World, TargetWorld, 40.f, 8, FColor::Green, false, -1.f, 0, 2.f);
 		DrawDebugLine(World, OwnerLocation, TargetWorld, FColor::Green, false, -1.f, 0, 2.f);

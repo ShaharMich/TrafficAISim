@@ -44,6 +44,9 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Steering") float WheelBase = 280.f;
 	UPROPERTY(EditAnywhere, Category = "Steering") float MaxSteerAngleDeg = 35.f;
 	UPROPERTY(EditAnywhere, Category = "Steering") float SteeringInterpSpeed = 6.f;
+	/** How hard to pull back toward the line. Too high oscillates, too low leaves a standing offset. */
+	UPROPERTY(EditAnywhere, Category = "Steering") float CrossTrackGain = 0.0004f;
+	UPROPERTY(EditAnywhere, Category = "Steering") float MaxCrossTrackCorrection = 0.3f;
 
 	// ---- Speed tuning ----
 	UPROPERTY(EditAnywhere, Category = "Speed") float CruiseSpeedKph = 55.f;
