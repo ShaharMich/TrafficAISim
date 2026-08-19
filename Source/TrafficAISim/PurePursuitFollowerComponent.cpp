@@ -7,6 +7,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "TrafficRegistrySubsystem.h"
+#include "Engine/Engine.h"
 #include "GameFramework/Pawn.h"
 
 UPurePursuitFollowerComponent::UPurePursuitFollowerComponent()
